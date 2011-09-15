@@ -117,6 +117,7 @@ class RedisLogger
   # other sets just in case we want to treat it differently in the future.
   #
   def self.add_entry(log_entry, level, sets = nil)
+    log_entry["timestamp"] = Time.now.to_i
     # Add entry to the proper log-level set, and desired group sets if any
     case sets.class
       when 'String'
@@ -125,7 +126,6 @@ class RedisLogger
         sets = [level]
     end
     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
-    log_entry["timestamp"] = Time.now.to_i
     log_entry["levels"] = sets
     
     redis.set "log:#{log_entry["timestamp"]}", log_entry.to_json
@@ -139,7 +139,7 @@ class RedisLogger
     
     sets.each do |set|
       redis.sadd "logger:sets", set
-      redis.sadd "logger:set:#{set}", tstamp
+      redis.sadd "logger:set:#{set}", log_entry["timestamp"]
     end
   end
 end
