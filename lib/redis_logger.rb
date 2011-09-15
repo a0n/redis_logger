@@ -121,7 +121,7 @@ class RedisLogger
       when 'NilClass'
         sets = []
     end
-    sets = level.to_a + sets
+    sets.push(level)
     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
     log_entry["levels"] = sets
     
