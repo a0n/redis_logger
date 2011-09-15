@@ -120,14 +120,14 @@ class RedisLogger
     # Add entry to the proper log-level set, and desired group sets if any
     case sets.class
       when 'String'
-        sets = [sets]
+        sets = [level, sets]
       when 'NilClass'
-        sets = []
+        sets = [level]
     end
     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
     tstamp = Time.now.to_i
     log_entry["timestamp"] = tstamp
-    log_entry["levels"] = level.to_a + sets
+    log_entry["levels"] = sets
     
     
     log_entry.each { |key, value| redis.hset "log:#{tstamp}", key, value }
@@ -137,8 +137,7 @@ class RedisLogger
    
     # TODO: Shouldn't need to add the level every time; could do it once at startup?
     redis.publish "ss:broadcast", {:event => "newLog" ,:params => log_entry}.to_json
-    redis.sadd "logger:sets", level
-    redis.sadd "logger:set:#{level}", tstamp
+    
     sets.each do |set|
       redis.sadd "logger:sets", set
       redis.sadd "logger:set:#{set}", tstamp
