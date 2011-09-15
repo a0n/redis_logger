@@ -112,19 +112,16 @@ class RedisLogger
 
   private
 
-  #
-  # Add the log entry. The level is passed in separately rather than being merged with the
-  # other sets just in case we want to treat it differently in the future.
-  #
   def self.add_entry(log_entry, level, sets = nil)
     log_entry["timestamp"] = Time.now.to_i
     # Add entry to the proper log-level set, and desired group sets if any
     case sets.class
       when 'String'
-        sets = [level, sets]
+        sets = [sets]
       when 'NilClass'
-        sets = [level]
+        sets = []
     end
+    sets = level.to_a + sets
     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
     log_entry["levels"] = sets
     
