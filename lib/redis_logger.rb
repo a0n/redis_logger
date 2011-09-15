@@ -37,18 +37,18 @@ class RedisLogger
   # entry will be added (in addition to the standard log level group).
   #
 
-  def self.debug(log_entry, sets = nil)
-    add_entry(log_entry, "debug", sets)
+  def self.debug(log_entry, tags = nil)
+    add_entry(log_entry, "debug", tags)
   end
 
 
-  def self.warn(log_entry, sets = nil)
-    add_entry(log_entry, "warn", sets)
+  def self.warn(log_entry, tags = nil)
+    add_entry(log_entry, "warn", tags)
   end
 
   # Standard method for error messages. See comment above about debug()
-  def self.error(log_entry, sets = nil)
-    add_entry(log_entry, "error", sets)
+  def self.error(log_entry, tags = nil)
+    add_entry(log_entry, "error", tags)
   end
 
   #
@@ -60,17 +60,17 @@ class RedisLogger
   # Get the list of all of the log groups that exist.
   #
   def self.groups
-    group_keys = redis.smembers "logger:sets"
+    group_keys = redis.smembers "logger:tags"
     groups = {}
     group_keys.each do |k|
-      groups[k] = redis.scard("logger:set:#{k}")
+      groups[k] = redis.scard("logger:tag:#{k}")
     end
     return groups
   end
 
   # How many entries are in the specified log group?
   def self.size(group)
-    redis.scard("logger:set:#{group}")
+    redis.scard("logger:tag:#{group}")
   end
 
   #
@@ -79,7 +79,7 @@ class RedisLogger
   # most recent to oldest.
   #
   def self.entries(group, start=0, per_page=50)
-    entry_list = redis.sort("logger:set:#{group}", { :limit => [ start, per_page ], :order => "DESC" })
+    entry_list = redis.sort("logger:tag:#{group}", { :limit => [ start, per_page ], :order => "DESC" })
     fetch_entries(entry_list)
   end
 
@@ -91,7 +91,7 @@ class RedisLogger
   #
   def self.intersect(groups)
     counter = redis.incrby("logger:index", 1)
-    redis.sinterstore("logger:inter:#{counter}", groups.collect {|g| "logger:set:#{g}"})
+    redis.sinterstore("logger:inter:#{counter}", groups.collect {|g| "logger:tag:#{g}"})
     entry_list = redis.sort("logger:inter:#{counter}", { :limit => [ 0, 100 ], :order => "DESC" })
     entries = fetch_entries(entry_list)
     redis.del("logger:inter:#{counter}")
@@ -112,31 +112,38 @@ class RedisLogger
 
   private
 
-  def self.add_entry(log_entry, level, sets = nil)
-    log_entry["timestamp"] = Time.now.to_i
-    # Add entry to the proper log-level set, and desired group sets if any
-    case sets.class
-      when 'String'
-        sets = [sets]
-      when 'NilClass'
-        sets = []
-    end
-    sets.push(level)
-    # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
-    log_entry["levels"] = sets
+  def self.add_entry(attributes, level, tags = nil)
+    tstamp = Time.now.to_i
+    log_entry = {}
+    log_entry["attributes"] = attributes
     
-    redis.set "log:#{log_entry["timestamp"]}", log_entry.to_json
+    log_entry["timestamp"] = tstamp
+    log_entry["level"] = level
+    # Add entry to the proper log-level set, and desired group sets if any
+    if tags == nil
+      tags = []
+    elsif tags.is_a?(String)
+      tags = tags.to_a
+    end
+    
+    # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
+    log_entry["tags"] = tags
+
+    redis.set "log:#{tstamp}", log_entry.to_json
+    redis.sadd "logger:level:#{level}", tstamp
     
     # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
     #redis.hmset tstamp, *(log_entry.to_a)
 
+    puts level.inspect
+    puts tags.inspect
    
     # TODO: Shouldn't need to add the level every time; could do it once at startup?
-    redis.publish "ss:broadcast", {:event => "newLog" ,:params => log_entry}.to_json
+    redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :channels => tags.to_a + level.to_a  }.to_json
     
-    sets.each do |set|
-      redis.sadd "logger:sets", set
-      redis.sadd "logger:set:#{set}", log_entry["timestamp"]
+    tags.each do |tag|
+      redis.sadd "logger:tags", tag
+      redis.sadd "logger:tag:#{tag}", tstamp
     end
   end
 end
