@@ -131,6 +131,7 @@ class RedisLogger
         sets = []
     end
     # TODO: Shouldn't need to add the level every time; could do it once at startup?
+    redis.publish "ss:broadcast", log_entry
     redis.sadd "logger:sets", level
     redis.sadd "logger:set:#{level}", tstamp
     sets.each do |set|
