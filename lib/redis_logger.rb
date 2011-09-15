@@ -117,13 +117,6 @@ class RedisLogger
   # other sets just in case we want to treat it differently in the future.
   #
   def self.add_entry(log_entry, level, sets = nil)
-    # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
-    tstamp = Time.now.to_i
-    log_entry["timestamp"] = tstamp
-    log_entry.each { |key, value| redis.hset "log:#{tstamp}", key, value }
-    # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
-    #redis.hmset tstamp, *(log_entry.to_a)
-
     # Add entry to the proper log-level set, and desired group sets if any
     case sets.class
       when 'String'
@@ -131,6 +124,17 @@ class RedisLogger
       when 'NilClass'
         sets = []
     end
+    # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
+    tstamp = Time.now.to_i
+    log_entry["timestamp"] = tstamp
+    log_entry["levels"] = level.to_a + sets
+    
+    
+    log_entry.each { |key, value| redis.hset "log:#{tstamp}", key, value }
+    # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
+    #redis.hmset tstamp, *(log_entry.to_a)
+
+   
     # TODO: Shouldn't need to add the level every time; could do it once at startup?
     redis.publish "ss:broadcast", {:event => "newLog" ,:params => log_entry}.to_json
     redis.sadd "logger:sets", level
