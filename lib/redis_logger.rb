@@ -96,7 +96,7 @@ class RedisLogger
      #redis.hmset tstamp, *(log_entry.to_a)
 
      # TODO: Shouldn't need to add the level every time; could do it once at startup?
-     redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :channels => level.to_a}.to_json
+     redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :destinations => level.to_a}.to_json
 
      #tags.each do |tag|
      #  redis.sadd "logger:tags", tag
