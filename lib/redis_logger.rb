@@ -125,12 +125,11 @@ class RedisLogger
         sets = [level]
     end
     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
-    tstamp = Time.now.to_i
-    log_entry["timestamp"] = tstamp
+    log_entry["timestamp"] = Time.now.to_i
     log_entry["levels"] = sets
     
+    redis.set "log:#{log_entry["timestamp"]}", log_entry.to_json
     
-    log_entry.each { |key, value| redis.hset "log:#{tstamp}", key, value }
     # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
     #redis.hmset tstamp, *(log_entry.to_a)
 
