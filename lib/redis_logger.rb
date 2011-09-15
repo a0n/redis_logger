@@ -16,6 +16,22 @@ require 'json'
 # represented by a set called "logger:set:<name>" where name is the group name.
 #
 class RedisLogger
+  
+  module Severity
+    DEBUG   = 0
+    INFO    = 1
+    WARN    = 2
+    ERROR   = 3
+    FATAL   = 4
+    UNKNOWN = 5
+  end
+  include Severity
+  
+  
+  def initialize(level = DEBUG)
+    @level         = level
+    @redis         = self.class.redis
+  end
 
   def self.redis=(server)
     host, port, db = server.split(':')
@@ -28,6 +44,67 @@ class RedisLogger
     self.redis
   end
 
+   Severity.constants.each do |severity|
+      class_eval <<-EOT, __FILE__, __LINE__ + 1
+        def #{severity.downcase}(message = nil, progname = nil, &block) # def debug(message = nil, progname = nil, &block)
+          add(#{severity}, message, progname, &block)                   #   add(DEBUG, message, progname, &block)
+        end                                                             # end
+
+        def #{severity.downcase}?                                       # def debug?
+          #{severity} >= @level                                         #   DEBUG >= @level
+        end                                                             # end
+      EOT
+    end
+    
+  def add(severity, message = nil, progname = nil, &block)
+     return if @level > severity
+     if (message == nil)
+       message = ((block && block.call) || progname).to_s
+     else
+      
+     end
+     # If a newline is necessary then create a new message ending with a newline.
+     # Ensures that the original message is not mutated.
+     tstamp = Time.now.to_i
+     
+     level = {
+             0 => "DEBUG",
+             1 => "INFO",
+             2 => "WARN",
+             3 => "ERROR",
+             4 => "FATAL"
+           }[severity] || "U"
+     
+     log_entry = {}
+     log_entry["message"] = message  
+     log_entry["timestamp"] = tstamp
+     log_entry["level"] = level
+     # Add entry to the proper log-level set, and desired group sets if any
+     #if tags == nil
+     #  tags = []
+     #elsif tags.is_a?(String)
+     #  tags = tags.to_a
+     #end
+
+     # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
+     #log_entry["tags"] = tags
+     redis = @redis
+     #redis.set "log:#{tstamp}", log_entry.to_json
+     #redis.sadd "logger:level:#{level}", tstamp
+
+     # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
+     #redis.hmset tstamp, *(log_entry.to_a)
+
+     # TODO: Shouldn't need to add the level every time; could do it once at startup?
+     redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :channels => level.to_a}.to_json
+
+     #tags.each do |tag|
+     #  redis.sadd "logger:tags", tag
+     #  redis.sadd "logger:tag:#{tag}", tstamp
+     #end
+  end  
+
+
   #
   # Provide standard methods for various log levels. Each just calls the private
   # add_entry() method passing in its level name to use as the group name.
@@ -37,113 +114,4 @@ class RedisLogger
   # entry will be added (in addition to the standard log level group).
   #
 
-  def self.debug(log_entry, tags = nil)
-    add_entry(log_entry, "debug", tags)
-  end
-
-
-  def self.warn(log_entry, tags = nil)
-    add_entry(log_entry, "warn", tags)
-  end
-
-  # Standard method for error messages. See comment above about debug()
-  def self.error(log_entry, tags = nil)
-    add_entry(log_entry, "error", tags)
-  end
-
-  #
-  # Utility methods, mainly used by the web interface to display the lists of
-  # groups and entries.
-  #
-
-  #
-  # Get the list of all of the log groups that exist.
-  #
-  def self.groups
-    group_keys = redis.smembers "logger:tags"
-    groups = {}
-    group_keys.each do |k|
-      groups[k] = redis.scard("logger:tag:#{k}")
-    end
-    return groups
-  end
-
-  # How many entries are in the specified log group?
-  def self.size(group)
-    redis.scard("logger:tag:#{group}")
-  end
-
-  #
-  # Get the entries from a log group, with optional start index and per_page count,
-  # which default to 0/50 if not specified. Entries are returned in reverse order,
-  # most recent to oldest.
-  #
-  def self.entries(group, start=0, per_page=50)
-    entry_list = redis.sort("logger:tag:#{group}", { :limit => [ start, per_page ], :order => "DESC" })
-    fetch_entries(entry_list)
-  end
-
-  #
-  # Get the entries for an intersection of groups. Takes an array of group names and
-  # returns the top 100 resulting entries. This is done by intersecting into a new set,
-  # fetching the first 100 entries, then deleting the set.
-  # TODO: Save the intersected set, allow paginating, and use a cron to delete the temp sets
-  #
-  def self.intersect(groups)
-    counter = redis.incrby("logger:index", 1)
-    redis.sinterstore("logger:inter:#{counter}", groups.collect {|g| "logger:tag:#{g}"})
-    entry_list = redis.sort("logger:inter:#{counter}", { :limit => [ 0, 100 ], :order => "DESC" })
-    entries = fetch_entries(entry_list)
-    redis.del("logger:inter:#{counter}")
-    return entries
-  end
-
-  #
-  # Utility method to fetch entries given an array returned from a group set.
-  #
-  def self.fetch_entries(entry_list)
-    entries = []
-    entry_list.each do |e|
-      entries << redis.hgetall("log:#{e}")
-    end
-    return entries
-  end
-
-
-  private
-
-  def self.add_entry(attributes, level, tags = nil)
-    tstamp = Time.now.to_i
-    log_entry = {}
-    log_entry["attributes"] = attributes
-    
-    log_entry["timestamp"] = tstamp
-    log_entry["level"] = level
-    # Add entry to the proper log-level set, and desired group sets if any
-    if tags == nil
-      tags = []
-    elsif tags.is_a?(String)
-      tags = tags.to_a
-    end
-    
-    # TODO: Need to add unique id to timestamp to prevent multiple servers from causing collisions
-    log_entry["tags"] = tags
-
-    redis.set "log:#{tstamp}", log_entry.to_json
-    redis.sadd "logger:level:#{level}", tstamp
-    
-    # hmset() seems to be broken so skip it for now. Could pipeline the above commands.
-    #redis.hmset tstamp, *(log_entry.to_a)
-
-    puts level.inspect
-    puts tags.inspect
-   
-    # TODO: Shouldn't need to add the level every time; could do it once at startup?
-    redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :channels => tags.to_a + level.to_a  }.to_json
-    
-    tags.each do |tag|
-      redis.sadd "logger:tags", tag
-      redis.sadd "logger:tag:#{tag}", tstamp
-    end
-  end
 end
