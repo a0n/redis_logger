@@ -76,7 +76,7 @@ class RedisLogger
            }[severity] || "U"
      
      log_entry = {}
-     log_entry["message"] = message  
+     log_entry["message"] = message.inspect
      log_entry["timestamp"] = tstamp
      log_entry["level"] = level
      # Add entry to the proper log-level set, and desired group sets if any
