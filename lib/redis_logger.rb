@@ -79,6 +79,8 @@ class RedisLogger
      log_entry["message"] = message.inspect.to_s
      log_entry["timestamp"] = tstamp
      log_entry["level"] = level
+     log_entry["progname"] = progname
+     
      # Add entry to the proper log-level set, and desired group sets if any
      #if tags == nil
      #  tags = []
@@ -96,6 +98,7 @@ class RedisLogger
      #redis.hmset tstamp, *(log_entry.to_a)
 
      # TODO: Shouldn't need to add the level every time; could do it once at startup?
+     redis.sadd "levels", level 
      redis.publish "ss:channels", {:event => "newLog" ,:params => log_entry, :destinations => level.to_a}.to_json
 
      #tags.each do |tag|
@@ -104,7 +107,8 @@ class RedisLogger
      #end
   end  
 
-
+  
+  #require 'railtie' if defined?(Rails) && Rails::VERSION::STRING >= "3.0"
   #
   # Provide standard methods for various log levels. Each just calls the private
   # add_entry() method passing in its level name to use as the group name.
